@@ -24,18 +24,27 @@ extern "C" {
     fn log_many(a: &str, b: &str);
 }
 
+// We use a callback to continuously pass back data; see also
+// https://rustwasm.github.io/wasm-bindgen/reference/receiving-js-closures-in-rust.html
 #[wasm_bindgen]
-pub async fn request_port() -> Result<(), JsValue> {
+pub async fn request_port(cb: &js_sys::Function) -> Result<(), JsValue> {
     let w = window().unwrap();
     let n = w.navigator();
     let s = n.serial();
     let p = s.request_port();
+    // https://rustwasm.github.io/wasm-bindgen/api/web_sys/struct.SerialPort.html
+    // https://rustwasm.github.io/wasm-bindgen/reference/js-promises-and-rust-futures.html
     let port: SerialPort = Future::from(p).await.unwrap().into();
     let opts = SerialOptions::new(115200);
     log("[rust::wasm] open port");
+
     let _ = Future::from(port.open(&opts)).await;
     log("[rust::wasm] get readable");
     let pr = port.readable();
+    // The port ReadableStream currently only gets "object"
+    // https://rustwasm.github.io/wasm-bindgen/api/web_sys/struct.ReadableStream.html#method.get_reader
+    // so we use wasm_streams instead
+    // https://docs.rs/wasm-streams/latest/wasm_streams/readable/struct.ReadableStreamDefaultReader.html
     log("[rust::wasm] get readable stream");
     let mut rs = wasm_streams::readable::ReadableStream::from_raw(pr);
     log("[rust::wasm] get reader");
@@ -43,10 +52,13 @@ pub async fn request_port() -> Result<(), JsValue> {
     log("[rust::wasm] read...");
     // https://doc.rust-lang.org/rust-by-example/flow_control/while_let.html
     while let Ok(Some(res)) = r.read().await {
-        // log(&res.as_string().unwrap());
-        let r: Vec<u8> = serde_wasm_bindgen::from_value(res)?;
+        // https://docs.rs/serde-wasm-bindgen/latest/serde_wasm_bindgen/
+        let r: Vec<u8> = serde_wasm_bindgen::from_value(res.clone())?;
         if r.len() >= 1 {
-            log_u32(r[0] as u32);
+            let c = r[0] as char;
+            log(&format!("{c}"));
+            let this = JsValue::null();
+            let _ = cb.call1(&this, &res);
         }
     }
 

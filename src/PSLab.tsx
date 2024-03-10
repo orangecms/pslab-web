@@ -5,9 +5,14 @@ import { useState } from "react";
 const PSLab = () => {
   const [log, setLog] = useState("");
 
+  const xlog = (v) => {
+    const c = vtoc(v[0]);
+    setLog(l => `${l}${c}`);
+  }
+
   const wreq = async () => {
     const { request_port: reqPort } = await import("../pslab-wasm/pkg");
-    reqPort();
+    reqPort(xlog);
   };
 
   const listPorts = async () => {
