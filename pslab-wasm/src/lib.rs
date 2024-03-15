@@ -1,10 +1,13 @@
 mod utils;
 
+use gloo_utils::format::JsValueSerdeExt;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 // use wasm_bindgen_futures::spawn_local;
 use wasm_bindgen_futures::JsFuture as Future;
 use web_sys::{window, SerialOptions, SerialPort};
+
+static mut BOOM: u32 = 0;
 
 #[wasm_bindgen]
 extern "C" {
@@ -22,6 +25,18 @@ extern "C" {
     // Multiple arguments too!
     #[wasm_bindgen(js_namespace = console, js_name = log)]
     fn log_many(a: &str, b: &str);
+}
+
+#[wasm_bindgen]
+pub fn boom(cb: &js_sys::Function) {
+    unsafe {
+        BOOM = BOOM + 1;
+    }
+    let bx = unsafe { BOOM } % 0x10000;
+    let b: [u8; 2] = [bx as u8, (bx >> 8) as u8];
+    let v = JsValue::from_serde(&b).unwrap();
+    let this = JsValue::null();
+    let _ = cb.call1(&this, &v);
 }
 
 // We use a callback to continuously pass back data; see also
@@ -48,18 +63,17 @@ pub async fn request_port(cb: &js_sys::Function) -> Result<(), JsValue> {
     log("[rust::wasm] get readable stream");
     let mut rs = wasm_streams::readable::ReadableStream::from_raw(pr);
     log("[rust::wasm] get reader");
-    let mut r = &mut rs.get_reader();
+    let r = &mut rs.get_reader();
     log("[rust::wasm] read...");
     // https://doc.rust-lang.org/rust-by-example/flow_control/while_let.html
     while let Ok(Some(res)) = r.read().await {
         // https://docs.rs/serde-wasm-bindgen/latest/serde_wasm_bindgen/
         let r: Vec<u8> = serde_wasm_bindgen::from_value(res.clone())?;
-        if r.len() >= 1 {
-            let c = r[0] as char;
-            log(&format!("{c}"));
-            let this = JsValue::null();
-            let _ = cb.call1(&this, &res);
+        for b in r.iter() {
+            log(&format!("{}", *b as char));
         }
+        let this = JsValue::null();
+        let _ = cb.call1(&this, &res);
     }
 
     // spawn_local(async move { });
